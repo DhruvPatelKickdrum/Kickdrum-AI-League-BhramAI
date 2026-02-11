@@ -23,14 +23,17 @@ If the route is "dynamic", also identify the domain:
 - "finance" - Stock market, GDP, inflation, economic data
 - "weather" - Weather conditions, temperature, forecasts
 - "govt" - Government policies, regulations, official announcements
+- "science" - Scientific facts, physics/chemistry/biology, definitions, established knowledge (e.g. boiling points, constants)
 
 Respond ONLY with valid JSON in this exact format:
-{"route": "static|dynamic|invalid", "domain": "news|finance|weather|govt|null"}
+{"route": "static|dynamic|invalid", "domain": "news|finance|weather|govt|science|null"}
 
 Examples:
 - "What is GDP?" -> {"route": "static", "domain": null}
 - "Who won the 2024 US election?" -> {"route": "static", "domain": null}
 - "Who won the ICC T20 World Cup 2024?" -> {"route": "static", "domain": null}
+- "Water boils at 100 degrees Celsius at sea level." -> {"route": "dynamic", "domain": "science"}
+- "The speed of light is 299,792 km/s." -> {"route": "dynamic", "domain": "science"}
 - "What is the current inflation rate in India?" -> {"route": "dynamic", "domain": "finance"}
 - "Is it going to rain in Mumbai today?" -> {"route": "dynamic", "domain": "weather"}
 - "What does the EU AI Act regulate?" -> {"route": "static", "domain": null}
@@ -136,6 +139,7 @@ You have access to the following tools:
 - **scrape_news**: Search trusted news sources via web search for current news articles.
 - **scrape_finance**: Search trusted finance sources via web search for financial/market data.
 - **scrape_government**: Search trusted government sources via web search for policies and regulations.
+- **scrape_science**: Search trusted science/reference sources (e.g. Britannica, Wikipedia) for scientific facts and definitions.
 - **fetch_weather**: Get current weather data from a weather API.
 - **store_fact**: Evaluate if evidence is stable enough to store in the knowledge base.
 - **verify_and_synthesize**: Compare the claim against gathered evidence to produce a verdict.
@@ -153,11 +157,11 @@ filtering ensures only trusted sources are queried.
 
 2. **Retrieve from static KB**: If routed to static, search the knowledge base.
    - If results are above the similarity threshold (0.6), use them as evidence.
-   - If below threshold, use the dynamic path once: choose the single scraper that fits the claim (e.g. sports/events/elections → scrape_news; market data → scrape_finance; policy/regulations → scrape_government). When route is static and domain is null, infer domain from the claim (e.g. "who won" / events → news). Do not call other domain scrapers.
+   - If below threshold, use the dynamic path once: choose the single scraper that fits the claim (e.g. sports/events/elections → scrape_news; market data → scrape_finance; policy/regulations → scrape_government; scientific facts → scrape_science). When route is static and domain is null, infer domain from the claim (e.g. "who won" / events → news). Do not call other domain scrapers.
 
 3. **Retrieve from dynamic sources**: Use only the scraper that matches the routed domain.
    - If route_claim returned domain "news", use only scrape_news (do not use scrape_government or scrape_finance for news/sports questions).
-   - If domain is "finance", use only scrape_finance; if "govt", only scrape_government; if "weather", only fetch_weather.
+   - If domain is "finance", use only scrape_finance; if "govt", only scrape_government; if "weather", only fetch_weather; if "science", only scrape_science.
    - Call the scraper once with a clear query. One web search already searches all configured sources for that domain (e.g. BBC, ANI, ToI) in a single call.
 
 4. **Stop when evidence is sufficient**: If you received one or more evidence items that clearly answer the claim, do NOT call the same or other scrapers again. Go straight to verify_and_synthesize with the evidence you have.

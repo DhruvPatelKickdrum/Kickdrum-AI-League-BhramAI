@@ -27,7 +27,7 @@ def search_static_kb(query: str) -> dict:
             "max_similarity": float,
         }
     """
-    logger.info("Searching static KB for: %s", query[:100])
+    logger.debug("Searching static KB for: %s", query[:100])
 
     query_embedding = get_embedding(query)
     session = get_session()
@@ -47,7 +47,7 @@ def search_static_kb(query: str) -> dict:
     all_results = doc_results + fact_results
 
     if not all_results:
-        logger.info("No results found in static KB.")
+        logger.debug("No results found in static KB.")
         return {
             "results": [],
             "above_threshold": False,
@@ -65,7 +65,7 @@ def search_static_kb(query: str) -> dict:
     max_similarity = max(r.get("similarity", 0.0) for r in all_results)
     above_threshold = max_similarity >= settings.similarity_threshold
 
-    logger.info(
+    logger.debug(
         "Static KB: %d results, max similarity=%.4f, above_threshold=%s",
         len(reranked),
         max_similarity,

@@ -75,7 +75,7 @@ class WeatherFetcher:
         Weather data is always ephemeral (never stored in pgvector).
         """
         city, lat, lon = _extract_city(query)
-        logger.info("Fetching weather for %s (%.4f, %.4f)", city, lat, lon)
+        logger.debug("Fetching weather for %s (%.4f, %.4f)", city, lat, lon)
 
         params = {
             "latitude": lat,

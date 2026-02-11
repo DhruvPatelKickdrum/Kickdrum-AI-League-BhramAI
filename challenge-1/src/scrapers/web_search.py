@@ -41,7 +41,7 @@ def search_web(query: str, domain: str) -> list[dict]:
         logger.warning("No allowed domains configured for '%s'.", domain)
         return []
 
-    logger.info(
+    logger.debug(
         "Web search [%s] query=%s, domains=%s",
         domain, query[:80], allowed,
     )
@@ -111,7 +111,7 @@ def search_web(query: str, domain: str) -> list[dict]:
         for ev in parsed.evidence
     ]
 
-    logger.info("Web search [%s] returned %d evidence items.", domain, len(results))
+    logger.debug("Web search [%s] returned %d evidence items.", domain, len(results))
     return results
 
 
@@ -129,7 +129,7 @@ def _extract_from_raw(response, domain: str) -> list[dict]:
         elif item_type == "message":
             results.extend(_extract_message_content(item, domain))
 
-    logger.info("Fallback extraction [%s] returned %d items.", domain, len(results))
+    logger.debug("Fallback extraction [%s] returned %d items.", domain, len(results))
     return results
 
 

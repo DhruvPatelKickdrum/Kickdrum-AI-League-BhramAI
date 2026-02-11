@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 # Tools that return evidence we accumulate for verify_and_synthesize
 EVIDENCE_TOOL_NAMES = frozenset({
-    "scrape_news", "scrape_finance", "scrape_government", "fetch_weather", "search_static_kb",
+    "scrape_news", "scrape_finance", "scrape_government", "scrape_science", "fetch_weather", "search_static_kb",
 })
 
 
@@ -75,10 +75,10 @@ def agent_node(state: AgentState) -> dict:
     step_count = state.get("step_count", 0) + 1
     reasoning_trace = list(state.get("reasoning_trace", []))
 
-    # Log the agent's reasoning
+    # Log the agent's reasoning (DEBUG to avoid console noise)
     if response.content:
         reasoning_trace.append(f"Step {step_count}: {response.content[:200]}")
-        logger.info("Agent step %d: %s", step_count, response.content[:200])
+        logger.debug("Agent step %d: %s", step_count, response.content[:200])
 
     return {
         "messages": [response],
@@ -95,7 +95,7 @@ def should_continue(state: AgentState) -> str:
 
     # If we've hit the max steps, stop
     if step_count >= settings.max_agent_steps:
-        logger.warning("Agent hit max steps (%d), stopping.", settings.max_agent_steps)
+        logger.debug("Agent hit max steps (%d), stopping.", settings.max_agent_steps)
         return "end"
 
     # If the last message has tool calls, continue to tool execution
@@ -112,7 +112,7 @@ def should_continue(state: AgentState) -> str:
 
 def _evidence_from_result(tool_name: str, result: object) -> list[dict]:
     """Extract evidence list from a tool result for accumulation."""
-    if tool_name in ("scrape_news", "scrape_finance", "scrape_government", "fetch_weather"):
+    if tool_name in ("scrape_news", "scrape_finance", "scrape_government", "scrape_science", "fetch_weather"):
         if isinstance(result, list) and result and isinstance(result[0], dict):
             return [{"content": e.get("content", ""), "source_url": e.get("source_url", ""), "source_title": e.get("source_title", "")} for e in result]
     if tool_name == "search_static_kb" and isinstance(result, dict) and "results" in result:
@@ -225,9 +225,7 @@ def run_agent(claim: str) -> dict:
             "formatted_response": str,
         }
     """
-    logger.info("=" * 60)
-    logger.info("Running agent for claim: %s", claim)
-    logger.info("=" * 60)
+    logger.debug("Running agent for claim: %s", claim)
 
     # Build and invoke the graph
     app = build_agent_graph()
@@ -273,11 +271,15 @@ def run_agent(claim: str) -> dict:
     else:
         formatted = final_content or INVALID_CLAIM_RESPONSE
 
+    verdict = verification_result.get("verdict", "Unknown") if verification_result else "Unknown"
+    reasoning = verification_result.get("reasoning", final_content) if verification_result else final_content
+    citations = verification_result.get("citations", []) if verification_result else []
     return {
         "claim": claim,
-        "verdict": verification_result.get("verdict", "Unknown") if verification_result else "Unknown",
-        "reasoning": verification_result.get("reasoning", final_content) if verification_result else final_content,
-        "citations": verification_result.get("citations", []) if verification_result else [],
+        "verdict": verdict,
+        "reason": reasoning,
+        "reasoning": reasoning,
+        "citations": citations,
         "reasoning_trace": reasoning_trace,
         "formatted_response": formatted,
     }

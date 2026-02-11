@@ -58,7 +58,7 @@ def verify_claim(
     )
 
     raw = response.choices[0].message.content.strip()
-    logger.info("Verification response: %s", raw[:200])
+    logger.debug("Verification response: %s", raw[:200])
 
     try:
         result = json.loads(raw)
@@ -97,30 +97,30 @@ def synthesize_response(
     reasoning = verification_result.get("reasoning", "")
     citations = verification_result.get("citations", [])
 
-    # Build response
+    # Build response (plain text, no markdown)
     lines = [
-        f"**Claim:** {claim}",
+        f"Claim: {claim}",
         "",
-        f"**Verdict:** {verdict}",
+        f"Verdict: {verdict}",
         "",
-        f"**Reasoning:** {reasoning}",
+        f"Reasoning: {reasoning}",
         "",
     ]
 
     if citations:
-        lines.append("**Sources:**")
+        lines.append("Sources:")
         for cite in citations:
             title = cite.get("source_title", "Source")
             url = cite.get("source_url", "")
             snippet = cite.get("relevant_snippet", "")
             if url:
-                lines.append(f"- [{title}]({url}): {snippet}")
+                lines.append(f"- {title} ({url}): {snippet}")
             else:
                 lines.append(f"- {title}: {snippet}")
 
     if reasoning_trace:
         lines.append("")
-        lines.append("**Agent Reasoning Trace:**")
+        lines.append("Agent Reasoning Trace:")
         for i, step in enumerate(reasoning_trace, 1):
             lines.append(f"  {i}. {step}")
 

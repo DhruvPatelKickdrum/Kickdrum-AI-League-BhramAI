@@ -16,8 +16,10 @@ def _get_reranker() -> CrossEncoder:
     global _reranker
     if _reranker is None:
         model_name = "cross-encoder/ms-marco-MiniLM-L-6-v2"
-        logger.info("Loading reranker model: %s", model_name)
-        _reranker = CrossEncoder(model_name)
+        logger.debug("Loading reranker model: %s", model_name)
+        # Use CPU to avoid MPS/MTLCompilerService crashes on macOS in Gunicorn workers
+        # (second request often fails with "Unable to reach MTLCompilerService" when using MPS)
+        _reranker = CrossEncoder(model_name, device="cpu")
     return _reranker
 
 
@@ -54,7 +56,7 @@ def rerank(
 
     ranked = sorted(candidates, key=lambda x: x["rerank_score"], reverse=True)
 
-    logger.info(
+    logger.debug(
         "Reranked %d candidates → top-%d (best score=%.4f)",
         len(candidates),
         top_k,

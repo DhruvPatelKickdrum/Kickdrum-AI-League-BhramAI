@@ -29,7 +29,7 @@ class Settings(BaseSettings):
 
     # RAG pipeline
     similarity_threshold: float = Field(default=0.6, alias="SIMILARITY_THRESHOLD")
-    max_agent_steps: int = Field(default=7, alias="MAX_AGENT_STEPS")
+    max_agent_steps: int = Field(default=12, alias="MAX_AGENT_STEPS")
     chunk_size: int = Field(default=512, description="Chunk size in tokens")
     chunk_overlap: int = Field(default=50, description="Chunk overlap in tokens")
     top_k_retrieval: int = Field(default=20, description="Top-K candidates from vector search")

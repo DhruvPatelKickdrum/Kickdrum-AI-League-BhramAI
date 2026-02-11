@@ -30,7 +30,7 @@ def route_claim(claim: str) -> dict:
     )
 
     raw = response.choices[0].message.content.strip()
-    logger.info("Router response: %s", raw)
+    logger.debug("Router response: %s", raw)
 
     try:
         result = json.loads(raw)
@@ -43,7 +43,7 @@ def route_claim(claim: str) -> dict:
 
     if route not in ("static", "dynamic", "invalid"):
         route = "invalid"
-    if domain == "null" or domain not in ("news", "finance", "weather", "govt"):
+    if domain == "null" or domain not in ("news", "finance", "weather", "govt", "science"):
         domain = None
 
     return {"route": route, "domain": domain}

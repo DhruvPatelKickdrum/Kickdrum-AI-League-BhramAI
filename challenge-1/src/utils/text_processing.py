@@ -12,7 +12,7 @@ def normalize_text(text: str) -> str:
     return text
 
 
-def truncate_text(text: str, max_chars: int = 5000) -> str:
+def truncate_text(text: str, max_chars: int = 8080) -> str:
     """Truncate text to a maximum number of characters."""
     if len(text) <= max_chars:
         return text

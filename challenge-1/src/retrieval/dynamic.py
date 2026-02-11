@@ -31,7 +31,7 @@ def search_dynamic(query: str, domain: str | None = None) -> list[dict]:
 
     # Search all configured domains
     all_results: list[dict] = []
-    for d in ("news", "finance", "govt", "weather"):
+    for d in ("news", "finance", "govt", "science", "weather"):
         cfg = get_domain_config(d)
         if cfg:
             try:
@@ -51,10 +51,10 @@ def _search_single_domain(query: str, domain: str) -> list[dict]:
 
     # Weather uses a dedicated API fetcher (not web search)
     if cfg.get("type") == "api" or domain == "weather":
-        logger.info("Using API fetcher for domain '%s'.", domain)
+        logger.debug("Using API fetcher for domain '%s'.", domain)
         fetcher = WeatherFetcher()
         return fetcher.search(query)
 
     # All other domains use OpenAI web search with allowed_domains
-    logger.info("Using OpenAI web search for domain '%s'.", domain)
+    logger.debug("Using OpenAI web search for domain '%s'.", domain)
     return search_web(query, domain)
