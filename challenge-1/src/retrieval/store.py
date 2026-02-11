@@ -7,6 +7,7 @@ from openai import OpenAI
 from sqlalchemy import select
 
 from config.settings import get_llm_temperature, settings
+from src.agent.prompts import STABILITY_PROMPT
 from src.core.embeddings import get_embedding
 from src.database.connection import get_session
 from src.database.models import Fact
@@ -14,39 +15,6 @@ from src.database.operations import insert_fact
 from src.utils.hashing import compute_content_hash
 
 logger = logging.getLogger(__name__)
-
-STABILITY_PROMPT = """\
-You are evaluating whether a piece of information is stable enough to store in a \
-long-term knowledge base (for future reuse so we don't need to fetch it again).
-
-Stable facts include:
-- Definitions (e.g., "GDP is the total value of goods and services produced")
-- Historical events with settled outcomes (e.g. who won an election, who won a sports tournament, award winners)
-- Past event results: sports finals, elections, awards, competitions — once the event is over, the outcome is fixed
-- Established policies and regulations
-- Scientific consensus
-- Domain "news" can still be stable when the evidence describes a past, concluded event (e.g. "India won the T20 World Cup 2024" is stable; the result will not change)
-
-Unstable / ephemeral information includes:
-- Breaking or ongoing news where the situation may change
-- Live stock prices or market data
-- Weather conditions
-- Predictions or forecasts
-- Events still in progress without a final outcome
-
-Given the claim, the evidence, and its domain, decide if this information is stable. When in doubt, prefer stable for past event outcomes (sports, elections, awards).
-
-Respond in JSON: {"is_stable": true|false, "normalized_fact": "A clear standalone factual statement" | null}
-
-If stable, provide a clear, standalone factual statement that captures the key information.
-If not stable, set normalized_fact to null.
-"""
-
-NORMALIZE_PROMPT = """\
-Extract a clear, standalone factual statement from this evidence. \
-Include enough context so the fact makes sense on its own. \
-Be concise and accurate. Do not add information not present in the evidence.
-"""
 
 
 def evaluate_and_store(

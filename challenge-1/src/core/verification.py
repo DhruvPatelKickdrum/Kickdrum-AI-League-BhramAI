@@ -6,33 +6,11 @@ import logging
 from openai import OpenAI
 
 from config.settings import get_llm_temperature, settings
+from src.agent.prompts import VERIFICATION_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
 VERDICT_NOT_ENOUGH = "Not Enough Evidence"
-
-VERIFICATION_SYSTEM_PROMPT = """\
-You are a fact-checking assistant. Your job is to compare a user's claim against \
-the provided evidence and produce a verdict.
-
-Rules:
-1. You MUST only use information from the provided evidence. Never fabricate sources.
-2. If the evidence supports the claim, verdict is "Supported".
-3. If the evidence contradicts the claim, verdict is "Contradicted".
-4. If there is not enough evidence to determine truth, verdict is "Not Enough Evidence".
-5. If sources conflict with each other, verdict is "Conflicting Evidence".
-6. Always cite the specific sources that support your verdict.
-7. Provide clear, transparent reasoning for your verdict.
-
-Respond in this JSON format:
-{
-  "verdict": "Supported|Contradicted|Not Enough Evidence|Conflicting Evidence",
-  "reasoning": "Step-by-step explanation of how you reached this verdict.",
-  "citations": [
-    {"source_url": "...", "source_title": "...", "relevant_snippet": "..."}
-  ]
-}
-"""
 
 
 def verify_claim(
@@ -97,20 +75,6 @@ def verify_claim(
         "reasoning": result.get("reasoning", ""),
         "citations": result.get("citations", []),
     }
-
-
-SYNTHESIS_SYSTEM_PROMPT = """\
-You are a claim verification assistant. Synthesize the verification results into a \
-clear, user-friendly response.
-
-Format your response as:
-1. **Verdict:** [Supported/Contradicted/Not Enough Evidence/Conflicting Evidence]
-2. **Reasoning:** [Clear explanation]
-3. **Sources:**
-   - [Source title](source_url): relevant snippet
-
-Keep the response concise but thorough. Always include source citations.
-"""
 
 
 def synthesize_response(
