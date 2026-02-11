@@ -43,7 +43,7 @@ def route_claim(claim: str) -> dict:
 
     if route not in ("static", "dynamic", "invalid"):
         route = "invalid"
-    if domain == "null" or domain not in ("news", "finance", "weather", "govt", "science"):
+    if domain == "null" or domain not in ("news", "finance", "weather", "govt", "science", "historical"):
         domain = None
 
     return {"route": route, "domain": domain}

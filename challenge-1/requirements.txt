@@ -15,6 +15,9 @@ cohere>=5.0.0
 docling>=2.0.0
 requests>=2.31.0
 
+# Optional: Firecrawl for faster web search (set FIRECRAWL_API_KEY to use)
+firecrawl-py>=1.0.0
+
 # Config & Utils
 pyyaml>=6.0.0
 python-dotenv>=1.0.0

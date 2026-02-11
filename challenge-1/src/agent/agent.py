@@ -11,14 +11,17 @@ from langgraph.graph import StateGraph, END
 from config.settings import get_llm_temperature, settings
 from src.agent.prompts import AGENT_SYSTEM_PROMPT, INVALID_CLAIM_RESPONSE
 from src.agent.tools import ALL_TOOLS
-from src.core.verification import synthesize_response
+from src.core.verification import synthesize_response, verify_claim as _verify_claim_core
 
 logger = logging.getLogger(__name__)
 
 # Tools that return evidence we accumulate for verify_and_synthesize
 EVIDENCE_TOOL_NAMES = frozenset({
-    "scrape_news", "scrape_finance", "scrape_government", "scrape_science", "fetch_weather", "search_static_kb",
+    "scrape_news", "scrape_finance", "scrape_government", "scrape_science", "fetch_weather", "search_static_kb", "search_historical",
 })
+
+# When we already have this many evidence items, skip any further scrape_* / search_historical calls
+MIN_EVIDENCE_TO_SKIP_MORE_SEARCH = 2
 
 
 # ---------------------------------------------------------------------------
@@ -56,6 +59,7 @@ def _get_llm() -> ChatOpenAI:
         model=settings.llm_model,
         api_key=settings.openai_api_key,
         temperature=get_llm_temperature(),
+        max_tokens=getattr(settings, "max_agent_response_tokens", 2048) or 2048,
     )
 
 
@@ -75,10 +79,10 @@ def agent_node(state: AgentState) -> dict:
     step_count = state.get("step_count", 0) + 1
     reasoning_trace = list(state.get("reasoning_trace", []))
 
-    # Log the agent's reasoning (DEBUG to avoid console noise)
+    # Log the agent's reasoning (DEBUG only; log truncated for readability — full content is in state)
     if response.content:
         reasoning_trace.append(f"Step {step_count}: {response.content[:200]}")
-        logger.debug("Agent step %d: %s", step_count, response.content[:200])
+        logger.debug("Agent step %d (first 200 chars): %s", step_count, response.content[:200])
 
     return {
         "messages": [response],
@@ -106,13 +110,23 @@ def should_continue(state: AgentState) -> str:
     return "end"
 
 
+def after_tools_route(state: AgentState) -> str:
+    """After running tools: skip the final agent turn if we already have a verification result (avoids hang on long summary)."""
+    messages = state["messages"]
+    for msg in reversed(messages):
+        if hasattr(msg, "name") and msg.name == "verify_and_synthesize":
+            logger.debug("Skipping final agent turn; verification result already present.")
+            return "end"
+    return "agent"
+
+
 # ---------------------------------------------------------------------------
 # Tools node: run tools, accumulate evidence, inject into verify_and_synthesize
 # ---------------------------------------------------------------------------
 
 def _evidence_from_result(tool_name: str, result: object) -> list[dict]:
     """Extract evidence list from a tool result for accumulation."""
-    if tool_name in ("scrape_news", "scrape_finance", "scrape_government", "scrape_science", "fetch_weather"):
+    if tool_name in ("scrape_news", "scrape_finance", "scrape_government", "scrape_science", "fetch_weather", "search_historical"):
         if isinstance(result, list) and result and isinstance(result[0], dict):
             return [{"content": e.get("content", ""), "source_url": e.get("source_url", ""), "source_title": e.get("source_title", "")} for e in result]
     if tool_name == "search_static_kb" and isinstance(result, dict) and "results" in result:
@@ -154,6 +168,19 @@ def tools_node(state: AgentState) -> dict:
         # Inject accumulated evidence so the LLM doesn't have to pass it
         if name == "verify_and_synthesize" and collected_so_far:
             args["evidence"] = collected_so_far
+        # Skip duplicate scrape/search when we already have enough evidence (avoids extra web search)
+        if name in ("scrape_news", "scrape_finance", "scrape_government", "scrape_science", "search_historical"):
+            if len(collected_so_far) >= MIN_EVIDENCE_TO_SKIP_MORE_SEARCH:
+                n = len(collected_so_far)
+                tool_messages.append(ToolMessage(
+                    content=(
+                        f"You already have sufficient evidence ({n} items) from a previous search. "
+                        "Do not search again. Proceed to verify_and_synthesize with the evidence you have."
+                    ),
+                    tool_call_id=tid or "",
+                    name=name,
+                ))
+                continue
         tool = tools_by_name.get(name)
         if not tool:
             tool_messages.append(ToolMessage(content=f"Unknown tool: {name}", tool_call_id=tid or "", name=name))
@@ -166,6 +193,9 @@ def tools_node(state: AgentState) -> dict:
         content = result if isinstance(result, str) else json.dumps(result, ensure_ascii=False)
         tool_messages.append(ToolMessage(content=content, tool_call_id=tid or "", name=name))
         evidence = _evidence_from_result(name, result)
+        # Only use static KB results as evidence when above threshold; otherwise agent must search online
+        if name == "search_static_kb" and isinstance(result, dict) and not result.get("above_threshold"):
+            evidence = []
         if evidence:
             collected_so_far.extend(evidence)
             new_evidence_this_round.extend(evidence)
@@ -198,8 +228,8 @@ def build_agent_graph() -> StateGraph:
         },
     )
 
-    # After tools, go back to agent
-    graph.add_edge("tools", "agent")
+    # After tools: go to agent for a summary, or end if we already have verify_and_synthesize result
+    graph.add_conditional_edges("tools", after_tools_route, {"agent": "agent", "end": END})
 
     return graph.compile()
 
@@ -266,14 +296,28 @@ def run_agent(claim: str) -> dict:
     # Try to extract structured verdict from tool results
     verification_result = _extract_verification_result(messages)
 
+    # If agent hit max steps without calling verify_and_synthesize, run verification on collected evidence if any
+    if verification_result is None:
+        collected = list(final_state.get("collected_evidence") or [])
+        if collected:
+            logger.debug("Max steps hit with %d evidence items; running verification on collected evidence.", len(collected))
+            verification_result = _verify_claim_core(claim, collected)
+        else:
+            # No evidence; return a clear response for the extension (valid JSON with user-facing message)
+            verification_result = {
+                "verdict": "Incomplete",
+                "reasoning": "Verification did not complete within the step limit. Try a shorter claim or try again.",
+                "citations": [],
+            }
+
     if verification_result:
         formatted = synthesize_response(claim, verification_result, reasoning_trace)
     else:
         formatted = final_content or INVALID_CLAIM_RESPONSE
 
-    verdict = verification_result.get("verdict", "Unknown") if verification_result else "Unknown"
-    reasoning = verification_result.get("reasoning", final_content) if verification_result else final_content
-    citations = verification_result.get("citations", []) if verification_result else []
+    verdict = verification_result.get("verdict", "Unknown")
+    reasoning = verification_result.get("reasoning", final_content)
+    citations = verification_result.get("citations", [])
     return {
         "claim": claim,
         "verdict": verdict,

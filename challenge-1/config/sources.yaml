@@ -17,6 +17,8 @@ domains:
         name: "ANI News"
       - domain: "timesofindia.indiatimes.com"
         name: "Times of India"
+      - domain: "en.wikipedia.org"
+        name: "Wikipedia"
 
   finance:
     name: "Finance"

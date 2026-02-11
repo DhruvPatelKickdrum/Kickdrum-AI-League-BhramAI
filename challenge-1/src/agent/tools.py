@@ -83,11 +83,29 @@ def scrape_science(query: Annotated[str, "Search query for scientific or general
     return search_dynamic(query, domain="science")
 
 
+# Minimum evidence items from Wikipedia/science before we skip news
+_MIN_HISTORICAL_SCIENCE_THRESHOLD = 2
+
+
+@tool
+def search_historical(query: Annotated[str, "Search query for historical events, dates, or figures"]) -> list[dict]:
+    """For historical claims: search Wikipedia and reference sources first; if insufficient, then search news. Use this when the routed domain is 'historical'."""
+    logger.debug("Tool: search_historical(%s)", query[:80])
+    science_results = search_dynamic(query, domain="science")
+    if len(science_results) >= _MIN_HISTORICAL_SCIENCE_THRESHOLD:
+        logger.debug("search_historical: got %d from science/Wikipedia, skipping news.", len(science_results))
+        return science_results
+    news_results = search_dynamic(query, domain="news")
+    combined = science_results + news_results
+    logger.debug("search_historical: science=%d, news=%d, total=%d.", len(science_results), len(news_results), len(combined))
+    return combined
+
+
 @tool
 def store_fact(
     claim: Annotated[str, "The original claim"],
     evidence: Annotated[list[dict], "List of evidence items with content, source_url, source_title"],
-    domain: Annotated[str, "The domain: news, finance, govt, weather, science, or null"],
+    domain: Annotated[str, "The domain: news, finance, govt, weather, science, historical, or null"],
 ) -> dict:
     """Evaluate if evidence is stable enough to store in the knowledge base, and store if yes."""
     logger.debug("Tool: store_fact(domain=%s)", domain)
@@ -118,6 +136,7 @@ ALL_TOOLS = [
     scrape_government,
     scrape_science,
     fetch_weather,
+    search_historical,
     store_fact,
     verify_and_synthesize,
 ]

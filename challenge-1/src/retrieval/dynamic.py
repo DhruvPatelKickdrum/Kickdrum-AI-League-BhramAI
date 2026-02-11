@@ -1,17 +1,22 @@
 """Dynamic retrieval orchestrator for real-time data.
 
-Uses OpenAI web_search with allowed_domains for news/finance/govt,
-and Open-Meteo API for weather. Domain configuration is read from
-config/sources.yaml — no hardcoded URLs.
+Uses Firecrawl (when FIRECRAWL_API_KEY is set) or OpenAI web_search for news/finance/govt/science,
+and Open-Meteo API for weather. Domain configuration is read from config/sources.yaml.
+
+When searching a domain with multiple sources, we try one source at a time and stop
+as soon as we have enough evidence (early exit).
 """
 
 import logging
 
-from config.settings import get_domain_config
+from config.settings import get_allowed_domains, get_domain_config, settings
 from src.scrapers.weather import WeatherFetcher
 from src.scrapers.web_search import search_web
 
 logger = logging.getLogger(__name__)
+
+# Stop querying more domains once we have at least this many evidence items from one/batch
+MIN_EVIDENCE_FOR_EARLY_EXIT = 2
 
 
 def search_dynamic(query: str, domain: str | None = None) -> list[dict]:
@@ -55,6 +60,34 @@ def _search_single_domain(query: str, domain: str) -> list[dict]:
         fetcher = WeatherFetcher()
         return fetcher.search(query)
 
-    # All other domains use OpenAI web search with allowed_domains
-    logger.debug("Using OpenAI web search for domain '%s'.", domain)
-    return search_web(query, domain)
+    # Web search: try one source domain at a time; stop when we have enough evidence
+    allowed = get_allowed_domains(domain)
+    if not allowed:
+        logger.warning("No allowed domains for '%s'.", domain)
+        return []
+
+    all_results: list[dict] = []
+    use_firecrawl = getattr(settings, "firecrawl_api_key", None) and str(settings.firecrawl_api_key or "").strip()
+
+    for single_domain in allowed:
+        if use_firecrawl:
+            try:
+                from src.scrapers.firecrawl_search import search_firecrawl
+                results = search_firecrawl(query, domain, allowed_domains_override=[single_domain])
+            except Exception as e:
+                logger.warning("Firecrawl failed, falling back to OpenAI web search: %s", e)
+                results = search_web(query, domain, allowed_domains_override=[single_domain])
+        else:
+            logger.debug("Using OpenAI web search for domain '%s', source=%s.", domain, single_domain)
+            results = search_web(query, domain, allowed_domains_override=[single_domain])
+        all_results.extend(results)
+        if len(all_results) >= MIN_EVIDENCE_FOR_EARLY_EXIT:
+            logger.debug(
+                "Early exit: got %d evidence items (>= %d), skipping remaining sources for '%s'.",
+                len(all_results),
+                MIN_EVIDENCE_FOR_EARLY_EXIT,
+                domain,
+            )
+            return all_results
+
+    return all_results

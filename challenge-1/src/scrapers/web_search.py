@@ -19,21 +19,28 @@ def _normalize_domain(domain: str) -> str:
     return s or domain
 
 
-def search_web(query: str, domain: str) -> list[dict]:
+def search_web(
+    query: str,
+    domain: str,
+    *,
+    allowed_domains_override: list[str] | None = None,
+) -> list[dict]:
     """
     Search the web for evidence using OpenAI's web_search tool.
 
     Uses allowed_domains from config/sources.yaml to restrict results
-    to trusted sources for the given domain.
+    to trusted sources for the given domain. If allowed_domains_override
+    is provided, only those domains are queried (e.g. one domain at a time).
 
     Args:
         query: The search query / claim.
         domain: The domain category (news, finance, govt).
+        allowed_domains_override: Optional subset of domains to search; if None, use all configured.
 
     Returns:
         List of evidence dicts: [{"content", "source_url", "source_title", "date"}]
     """
-    raw_allowed = get_allowed_domains(domain)
+    raw_allowed = allowed_domains_override or get_allowed_domains(domain)
     allowed = [d for d in (_normalize_domain(d) for d in raw_allowed) if d]
     instructions = get_search_instructions(domain)
 

@@ -58,7 +58,7 @@ def verify_claim(
     )
 
     raw = response.choices[0].message.content.strip()
-    logger.debug("Verification response: %s", raw[:200])
+    logger.debug("Verification response (first 200 chars): %s", raw[:200])
 
     try:
         result = json.loads(raw)
