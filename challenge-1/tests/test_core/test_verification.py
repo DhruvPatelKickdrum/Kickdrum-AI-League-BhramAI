@@ -7,13 +7,13 @@ from unittest.mock import patch, MagicMock
 class TestVerification:
     """Test verification logic."""
 
-    def test_empty_evidence_returns_not_enough(self):
-        """With no evidence, should return 'Not Enough Evidence'."""
+    def test_empty_evidence_returns_inconclusive(self):
+        """With no evidence, should return 'Inconclusive'."""
         from src.core.verification import verify_claim
 
         result = verify_claim("Some claim", [])
 
-        assert result["verdict"] == "Not Enough Evidence"
+        assert result["verdict"] == "Inconclusive"
         assert result["citations"] == []
 
     def test_verify_returns_dict_with_required_keys(self):
@@ -22,7 +22,7 @@ class TestVerification:
         mock_response.choices = [
             MagicMock(
                 message=MagicMock(
-                    content='{"verdict": "Supported", "reasoning": "Evidence supports claim.", "citations": []}'
+                    content='{"verdict": "Verified", "reasoning": "Evidence supports claim.", "citations": []}'
                 )
             )
         ]
@@ -51,7 +51,7 @@ class TestSynthesis:
         result = synthesize_response(
             claim="Test claim",
             verification_result={
-                "verdict": "Supported",
+                "verdict": "Verified",
                 "reasoning": "Evidence clearly supports the claim.",
                 "citations": [
                     {
@@ -63,6 +63,6 @@ class TestSynthesis:
             },
         )
 
-        assert "Supported" in result
+        assert "Verified" in result
         assert "Example" in result
         assert "http://example.com" in result

@@ -3,11 +3,12 @@
 Uses Firecrawl (when FIRECRAWL_API_KEY is set) or OpenAI web_search for news/finance/govt/science,
 and Open-Meteo API for weather. Domain configuration is read from config/sources.yaml.
 
-When searching a domain with multiple sources, we try one source at a time and stop
-as soon as we have enough evidence (early exit).
+When searching a domain with multiple sources, we query sources in parallel (up to max_domains)
+to reduce wall-clock time, and stop once we have enough evidence.
 """
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from config.settings import get_allowed_domains, get_domain_config, settings
 from src.scrapers.weather import WeatherFetcher
@@ -15,18 +16,30 @@ from src.scrapers.web_search import search_web
 
 logger = logging.getLogger(__name__)
 
-# Stop querying more domains once we have at least this many evidence items from one/batch
-MIN_EVIDENCE_FOR_EARLY_EXIT = 2
+# Stop once we have at least this many evidence items
+MIN_EVIDENCE_FOR_EARLY_EXIT = 1
+# Max domains to try per category (avoids 7+ sequential calls when first few return nothing)
+MAX_DOMAINS_PER_CATEGORY = 2
+# Max parallel workers for domain search
+MAX_PARALLEL_DOMAINS = 3
 
 
-def search_dynamic(query: str, domain: str | None = None) -> list[dict]:
+def search_dynamic(
+    query: str,
+    domain: str | None = None,
+    *,
+    domains: list[str] | None = None,
+) -> list[dict]:
     """
     Search dynamic (real-time) sources for evidence.
 
     Args:
         query: The claim or search query.
-        domain: The domain to search (news, finance, govt, weather).
-                If None, tries all configured domains.
+        domain: The domain to search (news, finance, govt, weather, science).
+                If set, only this domain is searched.
+        domains: When domain is None, limit to these domains (e.g. skip weather).
+                 Example: domains=["news", "science", "finance", "govt"].
+                 If None, all configured domains are tried.
 
     Returns:
         List of evidence items.
@@ -34,9 +47,9 @@ def search_dynamic(query: str, domain: str | None = None) -> list[dict]:
     if domain:
         return _search_single_domain(query, domain)
 
-    # Search all configured domains
+    to_search = domains if domains is not None else ["news", "finance", "govt", "science", "weather"]
     all_results: list[dict] = []
-    for d in ("news", "finance", "govt", "science", "weather"):
+    for d in to_search:
         cfg = get_domain_config(d)
         if cfg:
             try:
@@ -66,28 +79,52 @@ def _search_single_domain(query: str, domain: str) -> list[dict]:
         logger.warning("No allowed domains for '%s'.", domain)
         return []
 
-    all_results: list[dict] = []
     use_firecrawl = getattr(settings, "firecrawl_api_key", None) and str(settings.firecrawl_api_key or "").strip()
+    # Agentic = Firecrawl Agent (app.agent()) + our LLM validation. Set FIRECRAWL_USE_AGENT=true to use.
+    use_agent = use_firecrawl and getattr(settings, "firecrawl_use_agent", False)
+    domains_to_try = allowed[:MAX_DOMAINS_PER_CATEGORY]
 
-    for single_domain in allowed:
-        if use_firecrawl:
-            try:
+    # Firecrawl: agentic (if FIRECRAWL_USE_AGENT) or search → LLM filter links → scrape selected URLs
+    if use_firecrawl:
+        try:
+            if use_agent:
+                from src.scrapers.firecrawl_search import search_firecrawl_agent
+                all_results = search_firecrawl_agent(
+                    query, domain,
+                    allowed_domains_override=domains_to_try,
+                    claim_context=query,
+                )
+            else:
                 from src.scrapers.firecrawl_search import search_firecrawl
-                results = search_firecrawl(query, domain, allowed_domains_override=[single_domain])
-            except Exception as e:
-                logger.warning("Firecrawl failed, falling back to OpenAI web search: %s", e)
-                results = search_web(query, domain, allowed_domains_override=[single_domain])
-        else:
-            logger.debug("Using OpenAI web search for domain '%s', source=%s.", domain, single_domain)
-            results = search_web(query, domain, allowed_domains_override=[single_domain])
-        all_results.extend(results)
-        if len(all_results) >= MIN_EVIDENCE_FOR_EARLY_EXIT:
-            logger.debug(
-                "Early exit: got %d evidence items (>= %d), skipping remaining sources for '%s'.",
-                len(all_results),
-                MIN_EVIDENCE_FOR_EARLY_EXIT,
-                domain,
-            )
+                all_results = search_firecrawl(
+                    query, domain,
+                    allowed_domains_override=domains_to_try,
+                    claim_context=query,
+                )
+            logger.debug("Domain '%s': Firecrawl → %d evidence items.", domain, len(all_results))
             return all_results
+        except Exception as e:
+            logger.warning("Firecrawl failed for domain '%s', falling back to OpenAI: %s", domain, e)
 
+    def search_one(source_domain: str) -> list[dict]:
+        logger.debug("Using OpenAI web search for domain '%s', source=%s.", domain, source_domain)
+        return search_web(query, domain, allowed_domains_override=[source_domain])
+
+    all_results = []
+    workers = min(MAX_PARALLEL_DOMAINS, len(domains_to_try))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        future_to_domain = {executor.submit(search_one, d): d for d in domains_to_try}
+        for future in as_completed(future_to_domain):
+            try:
+                results = future.result()
+                all_results.extend(results)
+                # Early exit once we have enough evidence
+                if len(all_results) >= MIN_EVIDENCE_FOR_EARLY_EXIT:
+                    for f in future_to_domain:
+                        f.cancel()
+                    break
+            except Exception as e:
+                logger.warning("Search failed for %s: %s", future_to_domain.get(future), e)
+
+    logger.debug("Domain '%s': %d domains in parallel → %d evidence items.", domain, len(domains_to_try), len(all_results))
     return all_results

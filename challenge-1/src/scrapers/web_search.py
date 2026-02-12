@@ -108,6 +108,8 @@ def search_web(
         # Fall back: try to extract from raw text output
         return _extract_from_raw(response, domain)
 
+    # Cap results per source to avoid sending too many items downstream
+    MAX_RESULTS_PER_SOURCE = 3
     results = [
         {
             "content": ev.content,
@@ -115,10 +117,10 @@ def search_web(
             "source_title": ev.source_title,
             "date": ev.date,
         }
-        for ev in parsed.evidence
+        for ev in parsed.evidence[:MAX_RESULTS_PER_SOURCE]
     ]
 
-    logger.debug("Web search [%s] returned %d evidence items.", domain, len(results))
+    logger.debug("Web search [%s] returned %d evidence items (capped from %d).", domain, len(results), len(parsed.evidence))
     return results
 
 

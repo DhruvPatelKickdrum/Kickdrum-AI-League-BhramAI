@@ -5,6 +5,8 @@ allowed_domains configured in config/sources.yaml. No hardcoded URLs.
 """
 
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Annotated
 
 from langchain_core.tools import tool
@@ -84,21 +86,47 @@ def scrape_science(query: Annotated[str, "Search query for scientific or general
 
 
 # Minimum evidence items from Wikipedia/science before we skip news
-_MIN_HISTORICAL_SCIENCE_THRESHOLD = 2
+_MIN_HISTORICAL_SCIENCE_THRESHOLD = 1
 
 
 @tool
 def search_historical(query: Annotated[str, "Search query for historical events, dates, or figures"]) -> list[dict]:
-    """For historical claims: search Wikipedia and reference sources first; if insufficient, then search news. Use this when the routed domain is 'historical'."""
+    """For historical claims: search Wikipedia/reference and news concurrently; return as soon as we have evidence. Use this when the routed domain is 'historical'."""
     logger.debug("Tool: search_historical(%s)", query[:80])
-    science_results = search_dynamic(query, domain="science")
-    if len(science_results) >= _MIN_HISTORICAL_SCIENCE_THRESHOLD:
-        logger.debug("search_historical: got %d from science/Wikipedia, skipping news.", len(science_results))
-        return science_results
-    news_results = search_dynamic(query, domain="news")
-    combined = science_results + news_results
-    logger.debug("search_historical: science=%d, news=%d, total=%d.", len(science_results), len(news_results), len(combined))
-    return combined
+
+    # Run science and news searches in parallel; return as soon as we get any evidence
+    all_results: list[dict] = []
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = {
+            executor.submit(search_dynamic, query, "science"): "science",
+            executor.submit(search_dynamic, query, "news"): "news",
+        }
+        for future in as_completed(futures):
+            domain_name = futures[future]
+            try:
+                results = future.result()
+                if results:
+                    all_results.extend(results)
+                    logger.debug("search_historical: got %d from %s.", len(results), domain_name)
+                    # We have enough evidence; cancel remaining futures and return early
+                    if len(all_results) >= _MIN_HISTORICAL_SCIENCE_THRESHOLD:
+                        for f in futures:
+                            f.cancel()
+                        break
+            except Exception as e:
+                logger.warning("search_historical %s failed: %s", domain_name, e)
+
+    logger.debug("search_historical: total=%d evidence items.", len(all_results))
+    return all_results
+
+
+def _store_fact_background(claim: str, evidence: list[dict], domain: str) -> None:
+    """Run store_fact in background thread — fire-and-forget so response isn't delayed."""
+    try:
+        result = evaluate_and_store(claim, evidence, domain)
+        logger.debug("Background store_fact completed: %s", result)
+    except Exception as e:
+        logger.warning("Background store_fact failed: %s", e)
 
 
 @tool
@@ -108,8 +136,10 @@ def store_fact(
     domain: Annotated[str, "The domain: news, finance, govt, weather, science, historical, or null"],
 ) -> dict:
     """Evaluate if evidence is stable enough to store in the knowledge base, and store if yes."""
-    logger.debug("Tool: store_fact(domain=%s)", domain)
-    return evaluate_and_store(claim, evidence, domain)
+    logger.debug("Tool: store_fact(domain=%s) — dispatching to background thread.", domain)
+    t = threading.Thread(target=_store_fact_background, args=(claim, evidence, domain), daemon=True)
+    t.start()
+    return {"stored": "pending", "fact": "Storage dispatched to background — will complete asynchronously."}
 
 
 @tool

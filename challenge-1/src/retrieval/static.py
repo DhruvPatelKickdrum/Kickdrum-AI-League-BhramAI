@@ -54,12 +54,16 @@ def search_static_kb(query: str) -> dict:
             "max_similarity": 0.0,
         }
 
-    # Rerank
-    reranked = rerank(
-        query=query,
-        candidates=all_results,
-        top_k=settings.top_k_rerank,
-    )
+    # Skip reranker when few candidates to save ~1–2s
+    if len(all_results) <= max(2, settings.top_k_rerank):
+        reranked = sorted(all_results, key=lambda r: r.get("similarity", 0.0), reverse=True)[: settings.top_k_rerank]
+        logger.debug("Static KB: %d candidates, skipped rerank.", len(all_results))
+    else:
+        reranked = rerank(
+            query=query,
+            candidates=all_results,
+            top_k=settings.top_k_rerank,
+        )
 
     # Determine max similarity from original vector search (before rerank)
     max_similarity = max(r.get("similarity", 0.0) for r in all_results)

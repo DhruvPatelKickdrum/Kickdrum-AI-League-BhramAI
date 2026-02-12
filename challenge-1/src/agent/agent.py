@@ -2,7 +2,8 @@
 
 import json
 import logging
-from typing import TypedDict, Annotated, Sequence
+from concurrent.futures import ThreadPoolExecutor
+from typing import Annotated, NotRequired, Sequence, TypedDict
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
@@ -11,7 +12,10 @@ from langgraph.graph import StateGraph, END
 from config.settings import get_llm_temperature, settings
 from src.agent.prompts import AGENT_SYSTEM_PROMPT, INVALID_CLAIM_RESPONSE
 from src.agent.tools import ALL_TOOLS
+from src.core.router import route_claim as _route_claim
 from src.core.verification import synthesize_response, verify_claim as _verify_claim_core
+from src.retrieval.dynamic import search_dynamic
+from src.retrieval.static import search_static_kb as _search_static_kb
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +25,10 @@ EVIDENCE_TOOL_NAMES = frozenset({
 })
 
 # When we already have this many evidence items, skip any further scrape_* / search_historical calls
-MIN_EVIDENCE_TO_SKIP_MORE_SEARCH = 2
+MIN_EVIDENCE_TO_SKIP_MORE_SEARCH = 1
+
+# Max evidence items to send to the verification LLM (more = slower, diminishing returns)
+MAX_EVIDENCE_FOR_VERIFICATION = 3
 
 
 # ---------------------------------------------------------------------------
@@ -48,6 +55,8 @@ class AgentState(TypedDict):
     reasoning_trace: list[str]
     step_count: int
     collected_evidence: Annotated[list, _extend_evidence]
+    eager_route_result: NotRequired[dict]
+    eager_static_result: NotRequired[dict]
 
 
 # ---------------------------------------------------------------------------
@@ -166,8 +175,9 @@ def tools_node(state: AgentState) -> dict:
         if not name:
             continue
         # Inject accumulated evidence so the LLM doesn't have to pass it
+        # Cap to MAX_EVIDENCE_FOR_VERIFICATION to keep verification fast
         if name == "verify_and_synthesize" and collected_so_far:
-            args["evidence"] = collected_so_far
+            args["evidence"] = collected_so_far[:MAX_EVIDENCE_FOR_VERIFICATION]
         # Skip duplicate scrape/search when we already have enough evidence (avoids extra web search)
         if name in ("scrape_news", "scrape_finance", "scrape_government", "scrape_science", "search_historical"):
             if len(collected_so_far) >= MIN_EVIDENCE_TO_SKIP_MORE_SEARCH:
@@ -181,6 +191,26 @@ def tools_node(state: AgentState) -> dict:
                     name=name,
                 ))
                 continue
+        # Use eager results when available so we don't re-run route or static KB
+        if name == "route_claim":
+            eager = state.get("eager_route_result")
+            if eager is not None:
+                content = json.dumps(eager, ensure_ascii=False)
+                tool_messages.append(ToolMessage(content=content, tool_call_id=tid or "", name=name))
+                continue
+        if name == "search_static_kb":
+            eager = state.get("eager_static_result")
+            if eager is not None:
+                content = json.dumps(eager, ensure_ascii=False)
+                tool_messages.append(ToolMessage(content=content, tool_call_id=tid or "", name=name))
+                evidence = _evidence_from_result(name, eager)
+                if evidence and not eager.get("above_threshold"):
+                    evidence = []
+                if evidence:
+                    collected_so_far.extend(evidence)
+                    new_evidence_this_round.extend(evidence)
+                continue
+
         tool = tools_by_name.get(name)
         if not tool:
             tool_messages.append(ToolMessage(content=f"Unknown tool: {name}", tool_call_id=tid or "", name=name))
@@ -257,25 +287,68 @@ def run_agent(claim: str) -> dict:
     """
     logger.debug("Running agent for claim: %s", claim)
 
+    # Eager: run route_claim + search_static_kb in parallel before the agent (saves ~15s)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        f_route = executor.submit(_route_claim, claim)
+        f_static = executor.submit(_search_static_kb, claim)
+        route_result = f_route.result()
+        static_result = f_static.result()
+
+    # Short-circuit: invalid claim
+    if route_result.get("route") == "invalid":
+        return {
+            "claim": claim,
+            "verdict": "Invalid",
+            "reason": "Claim was classified as invalid.",
+            "reasoning": "Claim was classified as invalid.",
+            "citations": [],
+            "reasoning_trace": ["Eager route: invalid"],
+            "formatted_response": INVALID_CLAIM_RESPONSE,
+        }
+
+    # Short-circuit: static KB above threshold — verify and return (no agent needed)
+    if static_result.get("above_threshold") and static_result.get("results"):
+        evidence = [
+            {"content": r.get("content", ""), "source_url": r.get("source_url", ""), "source_title": r.get("source_title", "")}
+            for r in static_result["results"][:MAX_EVIDENCE_FOR_VERIFICATION]
+        ]
+        verification_result = _verify_claim_core(claim, evidence)
+        return {
+            "claim": claim,
+            "verdict": verification_result.get("verdict", "Unknown"),
+            "reason": verification_result.get("reasoning", ""),
+            "reasoning": verification_result.get("reasoning", ""),
+            "citations": verification_result.get("citations", []),
+            "reasoning_trace": ["Eager route + static KB above threshold; verified directly."],
+            "formatted_response": synthesize_response(claim, verification_result, ["Eager static KB hit."]),
+        }
+
+    # Inject pre-computed results so the agent skips route_claim and search_static_kb
+    route_str = json.dumps(route_result, ensure_ascii=False)
+    static_str = json.dumps(
+        {"results": static_result.get("results", []), "above_threshold": static_result.get("above_threshold"), "max_similarity": static_result.get("max_similarity", 0)},
+        ensure_ascii=False,
+    )[:1500]
+    user_content = (
+        f"Please verify the following claim. Use your tools to gather evidence and produce a verdict.\n\n"
+        f"CLAIM: {claim}\n\n"
+        f"[Pre-computed — do NOT call route_claim or search_static_kb; use these results instead.]\n"
+        f"route_claim result: {route_str}\n"
+        f"search_static_kb result: {static_str}\n"
+        f"Proceed directly to the appropriate scraper (e.g. scrape_science, search_historical, scrape_news) if above_threshold is false, then verify_and_synthesize."
+    )
+
     # Build and invoke the graph
     app = build_agent_graph()
-
     initial_state = {
-        "messages": [
-            HumanMessage(
-                content=(
-                    f"Please verify the following claim. Use your tools to gather evidence, "
-                    f"cross-check sources, and produce a verdict.\n\n"
-                    f"CLAIM: {claim}"
-                )
-            ),
-        ],
+        "messages": [HumanMessage(content=user_content)],
         "claim": claim,
         "reasoning_trace": [],
         "step_count": 0,
         "collected_evidence": [],
+        "eager_route_result": route_result,
+        "eager_static_result": static_result,
     }
-
     final_state = app.invoke(initial_state)
 
     # Extract the final response
@@ -300,15 +373,32 @@ def run_agent(claim: str) -> dict:
     if verification_result is None:
         collected = list(final_state.get("collected_evidence") or [])
         if collected:
-            logger.debug("Max steps hit with %d evidence items; running verification on collected evidence.", len(collected))
-            verification_result = _verify_claim_core(claim, collected)
+            capped = collected[:MAX_EVIDENCE_FOR_VERIFICATION]
+            logger.debug("Max steps hit with %d evidence items; running verification on %d (capped).", len(collected), len(capped))
+            verification_result = _verify_claim_core(claim, capped)
         else:
-            # No evidence; return a clear response for the extension (valid JSON with user-facing message)
-            verification_result = {
-                "verdict": "Incomplete",
-                "reasoning": "Verification did not complete within the step limit. Try a shorter claim or try again.",
-                "citations": [],
-            }
+            # No evidence yet: one quick fallback dynamic search, then verify
+            try:
+                fallback_evidence = search_dynamic(
+                    claim,
+                    domains=["news", "science"],
+                )
+                if fallback_evidence:
+                    logger.debug("Max steps hit with no evidence; ran fallback search → %d items.", len(fallback_evidence))
+                    verification_result = _verify_claim_core(claim, fallback_evidence)
+                else:
+                    verification_result = {
+                        "verdict": "Incomplete",
+                        "reasoning": "Verification did not complete within the step limit. Try a shorter claim or try again.",
+                        "citations": [],
+                    }
+            except Exception as e:
+                logger.warning("Fallback search after max steps failed: %s", e)
+                verification_result = {
+                    "verdict": "Incomplete",
+                    "reasoning": "Verification did not complete within the step limit. Try a shorter claim or try again.",
+                    "citations": [],
+                }
 
     if verification_result:
         formatted = synthesize_response(claim, verification_result, reasoning_trace)
