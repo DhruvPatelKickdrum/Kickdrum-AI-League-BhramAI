@@ -8,11 +8,17 @@ const STORAGE_KEYS = { enabled: 'enabled', apiBaseUrl: 'apiBaseUrl', lastResult:
 const DEFAULT_API_BASE = 'http://localhost:8080';
 
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.contextMenus.remove(CONTEXT_MENU_ID, () => {
+  chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({
       id: CONTEXT_MENU_ID,
       title: 'Verify claim',
       contexts: ['selection'],
+    }, () => {
+      if (chrome.runtime.lastError) {
+        console.log('Context menu setup completed');
+      } else {
+        console.log('Context menu "Verify claim" created successfully');
+      }
     });
   });
 });
