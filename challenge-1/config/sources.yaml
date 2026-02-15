@@ -17,6 +17,8 @@ domains:
         name: "ANI News"
       - domain: "timesofindia.indiatimes.com"
         name: "Times of India"
+      - domain: "en.wikipedia.org"
+        name: "Wikipedia"
 
   finance:
     name: "Finance"
@@ -52,3 +54,18 @@ domains:
     sources:
       - domain: "open-meteo.com"
         name: "Open-Meteo"
+
+  science:
+    name: "Science & General Facts"
+    description: "Scientific facts, physics, chemistry, biology, definitions, established knowledge"
+    search_instructions: >
+      You are a science and facts research assistant. Search the provided sources for
+      established scientific facts, definitions, and verifiable general knowledge (e.g.
+      boiling points, physical constants, historical facts). Cite the source URL for each fact.
+    sources:
+      - domain: "britannica.com"
+        name: "Encyclopaedia Britannica"
+      - domain: "en.wikipedia.org"
+        name: "Wikipedia"
+      - domain: "science.org"
+        name: "Science (AAAS)"

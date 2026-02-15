@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Claim Verifier",
+  "version": "1.0.0",
+  "description": "Verify selected text against the RAG claim verification API. Toggle on/off via the extension icon.",
+  "permissions": [
+    "contextMenus",
+    "storage",
+    "scripting",
+    "notifications"
+  ],
+  "host_permissions": [
+    "http://localhost:8080/*",
+    "http://127.0.0.1:8080/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  }
+}

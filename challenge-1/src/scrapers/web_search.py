@@ -19,21 +19,28 @@ def _normalize_domain(domain: str) -> str:
     return s or domain
 
 
-def search_web(query: str, domain: str) -> list[dict]:
+def search_web(
+    query: str,
+    domain: str,
+    *,
+    allowed_domains_override: list[str] | None = None,
+) -> list[dict]:
     """
     Search the web for evidence using OpenAI's web_search tool.
 
     Uses allowed_domains from config/sources.yaml to restrict results
-    to trusted sources for the given domain.
+    to trusted sources for the given domain. If allowed_domains_override
+    is provided, only those domains are queried (e.g. one domain at a time).
 
     Args:
         query: The search query / claim.
         domain: The domain category (news, finance, govt).
+        allowed_domains_override: Optional subset of domains to search; if None, use all configured.
 
     Returns:
         List of evidence dicts: [{"content", "source_url", "source_title", "date"}]
     """
-    raw_allowed = get_allowed_domains(domain)
+    raw_allowed = allowed_domains_override or get_allowed_domains(domain)
     allowed = [d for d in (_normalize_domain(d) for d in raw_allowed) if d]
     instructions = get_search_instructions(domain)
 
@@ -41,7 +48,7 @@ def search_web(query: str, domain: str) -> list[dict]:
         logger.warning("No allowed domains configured for '%s'.", domain)
         return []
 
-    logger.info(
+    logger.debug(
         "Web search [%s] query=%s, domains=%s",
         domain, query[:80], allowed,
     )
@@ -101,6 +108,8 @@ def search_web(query: str, domain: str) -> list[dict]:
         # Fall back: try to extract from raw text output
         return _extract_from_raw(response, domain)
 
+    # Cap results per source to avoid sending too many items downstream
+    MAX_RESULTS_PER_SOURCE = 3
     results = [
         {
             "content": ev.content,
@@ -108,10 +117,10 @@ def search_web(query: str, domain: str) -> list[dict]:
             "source_title": ev.source_title,
             "date": ev.date,
         }
-        for ev in parsed.evidence
+        for ev in parsed.evidence[:MAX_RESULTS_PER_SOURCE]
     ]
 
-    logger.info("Web search [%s] returned %d evidence items.", domain, len(results))
+    logger.debug("Web search [%s] returned %d evidence items (capped from %d).", domain, len(results), len(parsed.evidence))
     return results
 
 
@@ -129,7 +138,7 @@ def _extract_from_raw(response, domain: str) -> list[dict]:
         elif item_type == "message":
             results.extend(_extract_message_content(item, domain))
 
-    logger.info("Fallback extraction [%s] returned %d items.", domain, len(results))
+    logger.debug("Fallback extraction [%s] returned %d items.", domain, len(results))
     return results
 
 

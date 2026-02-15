@@ -15,12 +15,19 @@ cohere>=5.0.0
 docling>=2.0.0
 requests>=2.31.0
 
+# Optional: Firecrawl for faster web search (set FIRECRAWL_API_KEY to use)
+firecrawl-py>=1.0.0
+
 # Config & Utils
 pyyaml>=6.0.0
 python-dotenv>=1.0.0
 pydantic>=2.0.0
 pydantic-settings>=2.0.0
 tiktoken>=0.5.0
+
+# API (deployment)
+flask>=3.0.0
+gunicorn>=21.0.0
 
 # Testing
 pytest>=7.4.0

@@ -35,7 +35,7 @@ def evaluate_and_store(
     """
     # Weather is never stored
     if domain == "weather":
-        logger.info("Weather data is ephemeral, not storing.")
+        logger.debug("Weather data is ephemeral, not storing.")
         return {"stored": False, "fact": None}
 
     if not evidence:
@@ -77,7 +77,7 @@ def evaluate_and_store(
     normalized_fact = result.get("normalized_fact")
 
     if not is_stable or not normalized_fact:
-        logger.info("Evidence is not stable enough to store.")
+        logger.debug("Evidence is not stable enough to store.")
         return {"stored": False, "fact": None}
 
     # Skip re-embedding and insert if fact already in KB (e.g. evidence came from static KB)
@@ -88,13 +88,13 @@ def evaluate_and_store(
             select(Fact).where(Fact.content_hash == content_hash)
         ).scalar_one_or_none()
         if existing:
-            logger.info("Fact already in knowledge base, skipping re-embedding and insert.")
+            logger.debug("Fact already in knowledge base, skipping re-embedding and insert.")
             return {"stored": True, "fact": normalized_fact}
     finally:
         session.close()
 
     # Store the normalized fact (embed only when not already present)
-    logger.info("Storing stable fact: %s", normalized_fact[:100])
+    logger.debug("Storing stable fact: %s", normalized_fact[:100])
     embedding = get_embedding(normalized_fact)
     session = get_session()
     try:

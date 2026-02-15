@@ -50,19 +50,38 @@ CITY_COORDINATES: dict[str, tuple[float, float]] = {
 }
 
 
-def _extract_city(query: str) -> tuple[str, float, float]:
+# Keywords that suggest the user is asking about weather (not a person, event, etc.)
+_WEATHER_QUERY_HINTS = (
+    "weather", "temperature", "forecast", "rain", "rainy", "snow", "sunny",
+    "humid", "wind", "°c", "°f", "degrees", "today", "tomorrow", "this week",
+    "will it", "is it going to", "how hot", "how cold", "climate",
+)
+
+
+def _looks_like_weather_query(query: str) -> bool:
+    """Return True if the query appears to be asking about weather, not e.g. a person or event."""
+    q = query.lower()
+    has_weather_hint = any(hint in q for hint in _WEATHER_QUERY_HINTS)
+    if has_weather_hint:
+        return True
+    # City name alone: only treat as weather if query is short (e.g. "Paris" or "weather Paris")
+    # Long text with a city (e.g. "Epstein lived in Paris") is likely not a weather request
+    for city in CITY_COORDINATES:
+        if city in q:
+            return len(q) < 50
+    return False
+
+
+def _extract_city(query: str) -> tuple[str | None, float, float]:
     """
     Extract a city name from the query and return its coordinates.
-
-    Falls back to Delhi if no city is recognized.
+    Returns (None, 0, 0) if no city is recognized (caller should not use weather).
     """
     query_lower = query.lower()
     for city, (lat, lon) in CITY_COORDINATES.items():
         if city in query_lower:
             return city.title(), lat, lon
-
-    # Default to Delhi
-    return "Delhi", 28.6139, 77.2090
+    return None, 0.0, 0.0
 
 
 class WeatherFetcher:
@@ -71,11 +90,17 @@ class WeatherFetcher:
     def search(self, query: str) -> list[dict]:
         """
         Fetch current weather for a location mentioned in the query.
-
+        Returns [] if the query does not look like a weather request (e.g. a person's name).
         Weather data is always ephemeral (never stored in pgvector).
         """
+        if not _looks_like_weather_query(query):
+            logger.debug("Query does not look like weather; skipping: %s", query[:60])
+            return []
         city, lat, lon = _extract_city(query)
-        logger.info("Fetching weather for %s (%.4f, %.4f)", city, lat, lon)
+        if city is None:
+            logger.debug("No location found in query; skipping weather: %s", query[:60])
+            return []
+        logger.debug("Fetching weather for %s (%.4f, %.4f)", city, lat, lon)
 
         params = {
             "latitude": lat,

@@ -27,13 +27,25 @@ class Settings(BaseSettings):
     # Cohere (optional reranker)
     cohere_api_key: str = Field(default="", alias="COHERE_API_KEY")
 
+    # Firecrawl (optional; when set, used for web search instead of OpenAI for speed)
+    firecrawl_api_key: str = Field(default="", alias="FIRECRAWL_API_KEY")
+    firecrawl_search_limit: int = Field(default=5, alias="FIRECRAWL_SEARCH_LIMIT")
+    firecrawl_search_timeout_ms: int = Field(default=30_000, alias="FIRECRAWL_SEARCH_TIMEOUT_MS")
+    firecrawl_max_links_to_scrape: int = Field(default=1, alias="FIRECRAWL_MAX_LINKS_TO_SCRAPE")
+    firecrawl_use_agent: bool = Field(
+        default=False,
+        alias="FIRECRAWL_USE_AGENT",
+        description="Use Firecrawl Agent (agentic extraction) + our LLM validation; when False, use search→LLM filter→scrape.",
+    )
+
     # RAG pipeline
     similarity_threshold: float = Field(default=0.6, alias="SIMILARITY_THRESHOLD")
-    max_agent_steps: int = Field(default=7, alias="MAX_AGENT_STEPS")
+    max_agent_steps: int = Field(default=10, alias="MAX_AGENT_STEPS")
+    max_agent_response_tokens: int = Field(default=2048, alias="MAX_AGENT_RESPONSE_TOKENS")
     chunk_size: int = Field(default=512, description="Chunk size in tokens")
     chunk_overlap: int = Field(default=50, description="Chunk overlap in tokens")
-    top_k_retrieval: int = Field(default=20, description="Top-K candidates from vector search")
-    top_k_rerank: int = Field(default=5, description="Top-K after reranking")
+    top_k_retrieval: int = Field(default=2, alias="TOP_K_RETRIEVAL", description="Nearest K vectors from vector search (default 2)")
+    top_k_rerank: int = Field(default=2, alias="TOP_K_RERANK", description="Top-K after reranking")
 
     # Logging
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
