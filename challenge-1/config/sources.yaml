@@ -1,0 +1,71 @@
+# Domain source configuration
+# Each domain maps to a list of allowed websites for OpenAI web search.
+# Add or remove sources here without touching any code.
+
+domains:
+  news:
+    name: "News"
+    description: "Current events, elections, incidents, breaking news"
+    search_instructions: >
+      You are a news research assistant. Search the provided news sources for
+      factual reporting related to the query. Focus on headlines, dates, and
+      verified facts. For each piece of information, cite the source URL.
+    sources:
+      - domain: "bbc.com"
+        name: "BBC News"
+      - domain: "aninews.in"
+        name: "ANI News"
+      - domain: "timesofindia.indiatimes.com"
+        name: "Times of India"
+      - domain: "en.wikipedia.org"
+        name: "Wikipedia"
+
+  finance:
+    name: "Finance"
+    description: "Stock market, GDP, inflation, economic data, financial news"
+    search_instructions: >
+      You are a financial research assistant. Search the provided financial
+      sources for market data, economic indicators, and financial news.
+      Include specific numbers, dates, and cite the source URL for every fact.
+    sources:
+      - domain: "livemint.com"
+        name: "Livemint"
+
+  govt:
+    name: "Government"
+    description: "Government policies, regulations, central bank decisions, official schemes"
+    search_instructions: >
+      You are a government policy research assistant. Search official government
+      and institutional websites for policy documents, regulations, press releases,
+      and official announcements. Cite the specific URL for each finding.
+    sources:
+      - domain: "rbi.org.in"
+        name: "Reserve Bank of India"
+      - domain: "ibef.org"
+        name: "India Brand Equity Foundation"
+      - domain: "artificialintelligenceact.eu"
+        name: "EU Artificial Intelligence Act"
+
+  weather:
+    name: "Weather"
+    description: "Weather conditions, temperature, forecasts"
+    type: "api"
+    api_url: "https://api.open-meteo.com/v1/forecast"
+    sources:
+      - domain: "open-meteo.com"
+        name: "Open-Meteo"
+
+  science:
+    name: "Science & General Facts"
+    description: "Scientific facts, physics, chemistry, biology, definitions, established knowledge"
+    search_instructions: >
+      You are a science and facts research assistant. Search the provided sources for
+      established scientific facts, definitions, and verifiable general knowledge (e.g.
+      boiling points, physical constants, historical facts). Cite the source URL for each fact.
+    sources:
+      - domain: "britannica.com"
+        name: "Encyclopaedia Britannica"
+      - domain: "en.wikipedia.org"
+        name: "Wikipedia"
+      - domain: "science.org"
+        name: "Science (AAAS)"
