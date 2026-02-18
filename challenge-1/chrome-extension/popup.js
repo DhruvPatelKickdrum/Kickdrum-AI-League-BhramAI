@@ -29,7 +29,8 @@ function saveUrl() {
 }
 
 toggleEl.addEventListener('click', () => {
-  const isOn = !toggleEl.classList.toggle('on');
+  toggleEl.classList.toggle('on');
+  const isOn = toggleEl.classList.contains('on');
   toggleEl.setAttribute('aria-pressed', isOn);
   saveEnabled(isOn);
 });

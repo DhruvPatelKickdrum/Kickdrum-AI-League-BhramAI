@@ -11,7 +11,8 @@
   ],
   "host_permissions": [
     "http://localhost:8080/*",
-    "http://127.0.0.1:8080/*"
+    "http://127.0.0.1:8080/*",
+    "http://43.205.95.208:8080/*"
   ],
   "background": {
     "service_worker": "background.js"
